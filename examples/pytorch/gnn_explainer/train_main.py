@@ -35,46 +35,43 @@ def main(args):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
-    #Transform to dgl graph. 
-    graph = dgl.from_networkx(g) 
-    labels = th.tensor(labels, dtype=th.long)
+    # Transform to dgl graph.
+    graph = dgl.from_networkx(g).to('cuda:0')
+    labels = th.tensor(labels, dtype=th.long).cuda()
     graph.ndata['label'] = labels
-    graph.ndata['feat'] = th.randn(graph.number_of_nodes(), args.feat_dim)
+    graph.ndata['feat'] = th.randn(graph.number_of_nodes(), args.feat_dim).cuda()
     hid_dim = th.tensor(args.hidden_dim, dtype=th.long)
-    label_dict = {'hid_dim':hid_dim}
+    label_dict = {'hid_dim': hid_dim}
 
     # save graph for later use
-    save_graphs(filename='./'+args.dataset+'.bin', g_list=[graph], labels=label_dict)
+    save_graphs(filename='./' + args.dataset + '.bin', g_list=[graph], labels=label_dict)
 
     num_classes = max(graph.ndata['label']).item() + 1
+    graph = graph.to('cuda:0')
     n_feats = graph.ndata['feat']
 
-    #create model
-    dummy_model =      model = GAT(graph,
-                                   args.num_layers,
-                                   args.feat_dim,
-                                   args.num_hidden,
-                                   num_classes,
-                                   ([args.num_heads] * args.num_layers) + [args.num_out_heads],
-                                   F.elu,
-                                   args.in_drop,
-                                   args.attn_drop,
-                                   args.negative_slope,
-                                   args.residual)
+    # create model
+    dummy_model = GCNII(nfeat=args.feat_dim,
+                        nlayers=args.layer,
+                        nhidden=args.hidden,
+                        nclass=num_classes,
+                        dropout=args.dropout,
+                        lamda=args.lamda,
+                        alpha=args.alpha,
+                        variant=args.variant).cuda()
     loss_fn = nn.CrossEntropyLoss()
-    optim = th.optim.Adam(dummy_model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-
+    optim = th.optim.Adam([{'params': dummy_model.params1, 'weight_decay': args.wd1},
+                           {'params': dummy_model.params2, 'weight_decay': args.wd2}], lr=args.lr)
 
     # train and output
     for epoch in tqdm(range(args.epochs)):
-
         dummy_model.train()
 
         logits = dummy_model(graph, n_feats)
 
         loss = loss_fn(logits, labels)
         acc = th.sum(logits.argmax(dim=1) == labels).item() / len(labels)
-        
+
         optim.zero_grad()
         loss.backward()
         optim.step()
@@ -92,53 +89,53 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, default='syn1', help='The dataset used for training the model.')
     parser.add_argument('--feat_dim', type=int, default=10, help='The feature dimension.')
     parser.add_argument('--hidden_dim', type=int, default=40, help='The hidden dimension.')
-    #hyper parameters for GCNII
+    # hyper parameters for GCNII
     parser.add_argument('--seed', type=int, default=42, help='Random seed.')
-    # parser.add_argument('--epochs', type=int, default=1000, help='Number of epochs to train.')
-    # parser.add_argument('--lr', type=float, default=0.005, help='learning rate.')
-    # parser.add_argument('--wd1', type=float, default=0.0, help='weight decay (L2 loss on parameters).')
-    # parser.add_argument('--wd2', type=float, default=0, help='weight decay (L2 loss on parameters).')
-    # parser.add_argument('--layer', type=int, default=6, help='Number of layers.')
-    # parser.add_argument('--hidden', type=int, default=128, help='hidden dimensions.')
-    # parser.add_argument('--dropout', type=float, default=0, help='Dropout rate (1 - keep probability).')
-    # parser.add_argument('--patience', type=int, default=100, help='Patience')
-    # parser.add_argument('--data', default='cora', help='dateset')
-    # parser.add_argument('--dev', type=int, default=0, help='device id')
-    # parser.add_argument('--alpha', type=float, default=0.1, help='alpha_l')
-    # parser.add_argument('--lamda', type=float, default=0.5, help='lamda.')
-    # parser.add_argument('--variant', action='store_true', default=False, help='GCN* model.')
-    # parser.add_argument('--test', action='store_true', default=False, help='evaluation on test set.')
-    #hyper parameters for GAT
-    parser.add_argument("--gpu", type=int, default=-1,
-                        help="which GPU to use. Set -1 to use CPU.")
-    parser.add_argument("--epochs", type=int, default=1000,
-                        help="number of training epochs")
-    parser.add_argument("--num-heads", type=int, default=8,
-                        help="number of hidden attention heads")
-    parser.add_argument("--num-out-heads", type=int, default=1,
-                        help="number of output attention heads")
-    parser.add_argument("--num-layers", type=int, default=2,
-                        help="number of hidden layers")
-    parser.add_argument("--num-hidden", type=int, default=16,
-                        help="number of hidden units")
-    parser.add_argument("--residual", action="store_true", default=False,
-                        help="use residual connection")
-    parser.add_argument("--in-drop", type=float, default=0,
-                        help="input feature dropout")
-    parser.add_argument("--attn-drop", type=float, default=0,
-                        help="attention dropout")
-    parser.add_argument("--lr", type=float, default=0.005,
-                        help="learning rate")
-    parser.add_argument('--weight-decay', type=float, default=0,
-                        help="weight decay")
-    parser.add_argument('--negative-slope', type=float, default=0.2,
-                        help="the negative slope of leaky relu")
-    parser.add_argument('--early-stop', action='store_true', default=False,
-                        help="indicates whether to use early stop or not")
-    parser.add_argument('--fastmode', action="store_true", default=False,
-                        help="skip re-evaluate the validation set")
+    parser.add_argument('--epochs', type=int, default=1000, help='Number of epochs to train.')
+    parser.add_argument('--lr', type=float, default=0.005, help='learning rate.')
+    parser.add_argument('--wd1', type=float, default=0.0, help='weight decay (L2 loss on parameters).')
+    parser.add_argument('--wd2', type=float, default=0, help='weight decay (L2 loss on parameters).')
+    parser.add_argument('--layer', type=int, default=6, help='Number of layers.')
+    parser.add_argument('--hidden', type=int, default=128, help='hidden dimensions.')
+    parser.add_argument('--dropout', type=float, default=0, help='Dropout rate (1 - keep probability).')
+    parser.add_argument('--patience', type=int, default=100, help='Patience')
+    parser.add_argument('--data', default='cora', help='dateset')
+    parser.add_argument('--dev', type=int, default=0, help='device id')
+    parser.add_argument('--alpha', type=float, default=0.1, help='alpha_l')
+    parser.add_argument('--lamda', type=float, default=0.5, help='lamda.')
+    parser.add_argument('--variant', action='store_true', default=False, help='GCN* model.')
+    parser.add_argument('--test', action='store_true', default=False, help='evaluation on test set.')
+    # hyper parameters for GAT
+    # parser.add_argument("--gpu", type=int, default=-1,
+    #                     help="which GPU to use. Set -1 to use CPU.")
+    # parser.add_argument("--epochs", type=int, default=1000,
+    #                     help="number of training epochs")
+    # parser.add_argument("--num-heads", type=int, default=8,
+    #                     help="number of hidden attention heads")
+    # parser.add_argument("--num-out-heads", type=int, default=1,
+    #                     help="number of output attention heads")
+    # parser.add_argument("--num-layers", type=int, default=2,
+    #                     help="number of hidden layers")
+    # parser.add_argument("--num-hidden", type=int, default=16,
+    #                     help="number of hidden units")
+    # parser.add_argument("--residual", action="store_true", default=False,
+    #                     help="use residual connection")
+    # parser.add_argument("--in-drop", type=float, default=0,
+    #                     help="input feature dropout")
+    # parser.add_argument("--attn-drop", type=float, default=0,
+    #                     help="attention dropout")
+    # parser.add_argument("--lr", type=float, default=0.005,
+    #                     help="learning rate")
+    # parser.add_argument('--weight-decay', type=float, default=0,
+    #                     help="weight decay")
+    # parser.add_argument('--negative-slope', type=float, default=0.2,
+    #                     help="the negative slope of leaky relu")
+    # parser.add_argument('--early-stop', action='store_true', default=False,
+    #                     help="indicates whether to use early stop or not")
+    # parser.add_argument('--fastmode', action="store_true", default=False,
+    #                     help="skip re-evaluate the validation set")
     args = parser.parse_args()
     print(args)
 
     main(args)
-    
+

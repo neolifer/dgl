@@ -2,7 +2,7 @@
 
 import tkinter
 import matplotlib
-matplotlib.use('TkAgg')
+# matplotlib.use('TkAgg')
 
 import networkx as nx
 import matplotlib.pylab as plt

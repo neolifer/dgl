@@ -24,7 +24,7 @@ def main(args):
 
     # load graph, feat, and label
     g_list, label_dict = load_graphs('./'+args.dataset+'.bin')
-    graph = g_list[0]
+    graph = g_list[0].to('cuda:0')
     labels = graph.ndata['label']
     feats = graph.ndata['feat']
     num_classes = max(labels).item() + 1
@@ -32,7 +32,15 @@ def main(args):
     hid_dim = label_dict['hid_dim'].item()
     
     # create a model and load from state_dict
-    dummy_model = dummy_gnn_model(feat_dim, hid_dim, num_classes)
+
+    dummy_model =     GCNII(nfeat=feat_dim,
+                  nlayers=args.layer,
+                  nhidden=args.hidden,
+                  nclass=num_classes,
+                  dropout=args.dropout,
+                  lamda=args.lamda,
+                  alpha=args.alpha,
+                  variant=args.variant).cuda()
     dummy_model.load_state_dict(model_stat_dict)
 
     # Choose a node of the target class to be explained and extract its subgraph.
@@ -85,6 +93,21 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default=200, help='The number of epochs.')
     parser.add_argument('--lr', type=float, default=0.01, help='The learning rate.')
     parser.add_argument('--wd', type=float, default=0.0, help='Weight decay.')
+# hyper parameters for GCNII
+    parser.add_argument('--seed', type=int, default=42, help='Random seed.')
+    parser.add_argument('--epochs', type=int, default=1000, help='Number of epochs to train.')
+    parser.add_argument('--wd1', type=float, default=0.0, help='weight decay (L2 loss on parameters).')
+    parser.add_argument('--wd2', type=float, default=0, help='weight decay (L2 loss on parameters).')
+    parser.add_argument('--layer', type=int, default=6, help='Number of layers.')
+    parser.add_argument('--hidden', type=int, default=128, help='hidden dimensions.')
+    parser.add_argument('--dropout', type=float, default=0, help='Dropout rate (1 - keep probability).')
+    parser.add_argument('--patience', type=int, default=100, help='Patience')
+    parser.add_argument('--data', default='cora', help='dateset')
+    parser.add_argument('--dev', type=int, default=0, help='device id')
+    parser.add_argument('--alpha', type=float, default=0.1, help='alpha_l')
+    parser.add_argument('--lamda', type=float, default=0.5, help='lamda.')
+    parser.add_argument('--variant', action='store_true', default=False, help='GCN* model.')
+    parser.add_argument('--test', action='store_true', default=False, help='evaluation on test set.')
     args = parser.parse_args()
     print(args)
 
